@@ -9,6 +9,51 @@ import DiceRoller from "./DiceRoller"
 import ZoneMenu from "./ZoneMenu"
 import CommanderZone from "./CommanderZone"
 import socket from "../services/socket"
+import { fetchCard } from "../services/scryfall"
+
+function MiniCard({ name }) {
+  const [cardData, setCardData] = useState(null)
+  const [hovered, setHovered] = useState(false)
+
+  useEffect(() => {
+    fetchCard(name).then(setCardData)
+  }, [name])
+
+  if (!cardData) return (
+    <div style={{ width: "40px", height: "56px", background: "#2d1810", borderRadius: "4px" }} />
+  )
+
+  return (
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{ position: "relative", cursor: "pointer" }}
+    >
+      <img
+        src={cardData.image_uris?.small || cardData.image_uris?.normal}
+        alt={name}
+        style={{ width: "40px", height: "56px", borderRadius: "4px", display: "block", pointerEvents: "none" }}
+      />
+
+      {hovered && (
+        <div style={{
+          position: "fixed",
+          top: "50%",
+          left: "50%",
+          transform: "translate(-50%, -50%)",
+          zIndex: 9999,
+          pointerEvents: "none"
+        }}>
+          <img
+            src={cardData.image_uris?.large || cardData.image_uris?.normal}
+            alt={name}
+            style={{ width: "300px", height: "auto", borderRadius: "12px", boxShadow: "0 8px 40px rgba(0,0,0,0.8)", border: "2px solid #c9a84c" }}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
 
 function BattlefieldCard({ card, index, onTap, onCounterUpdate }) {
   const [{ isDragging }, drag] = useDrag({
@@ -126,7 +171,6 @@ function Battlefield({ gameState, onDraw, setGameState, onReset, roomCode }) {
   const [zoneMenu, setZoneMenu] = useState(null)
   const [otherPlayers, setOtherPlayers] = useState({})
 
-  // Envoyer l'état dès le montage du composant
   useEffect(() => {
     if (!roomCode) return
     socket.emit("sync_state", {
@@ -136,7 +180,6 @@ function Battlefield({ gameState, onDraw, setGameState, onReset, roomCode }) {
     })
   }, [])
 
-  // Synchroniser son état à chaque changement
   useEffect(() => {
     if (!roomCode) return
     socket.emit("sync_state", {
@@ -146,10 +189,11 @@ function Battlefield({ gameState, onDraw, setGameState, onReset, roomCode }) {
     })
   }, [gameState, roomCode])
 
-  // Recevoir les états des autres joueurs
   useEffect(() => {
     if (!roomCode) return
+
     socket.emit("request_states", { roomCode })
+
     socket.on("state_updated", ({ playerId, gameState: otherState }) => {
       if (playerId !== socket.id) {
         setOtherPlayers(prev => ({ ...prev, [playerId]: otherState }))
@@ -315,16 +359,72 @@ function Battlefield({ gameState, onDraw, setGameState, onReset, roomCode }) {
       {Object.entries(otherPlayers).length > 0 && (
         <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
           {Object.entries(otherPlayers).map(([playerId, state]) => (
-            <div key={playerId} style={{ padding: "10px", borderRadius: "12px", background: "rgba(0,0,0,0.2)", border: "1px solid rgba(201,168,76,0.2)", minWidth: "200px" }}>
-              <p style={{ fontFamily: "Cinzel, serif", color: "#c9a84c80", fontSize: "0.7rem", marginBottom: "6px" }}>
-                🧙 Adversaire — ❤️ {state.life} — 🃏 {state.hand?.length} cartes
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {state.battlefield?.map((card, i) => (
-                  <div key={i} style={{ fontSize: "0.6rem", color: "#f0e6d3", background: "rgba(255,255,255,0.05)", padding: "2px 6px", borderRadius: "4px" }}>
-                    {card.name}
+            <div key={playerId} style={{
+              padding: "12px",
+              borderRadius: "12px",
+              background: "rgba(0,0,0,0.3)",
+              border: "1px solid rgba(201,168,76,0.3)",
+              flex: 1
+            }}>
+              {/* Header adversaire */}
+              <div style={{ display: "flex", gap: "12px", alignItems: "center", marginBottom: "8px" }}>
+                <p style={{ fontFamily: "Cinzel, serif", color: "#c9a84c", fontSize: "0.75rem" }}>
+                  🧙 Adversaire
+                </p>
+                <span style={{ color: "#e63946", fontSize: "0.75rem", fontFamily: "Cinzel, serif" }}>❤️ {state.life}</span>
+                <span style={{ color: "#f0e6d3", fontSize: "0.75rem", fontFamily: "Crimson Text, serif" }}>🃏 {state.hand?.length} cartes</span>
+                <span style={{ color: "#f0e6d3", fontSize: "0.75rem", fontFamily: "Crimson Text, serif" }}>📚 {state.library?.length}</span>
+                {state.commander && (
+                  <span style={{ color: "#c9a84c", fontSize: "0.75rem", fontFamily: "Crimson Text, serif" }}>
+                    👑 {state.commander.name}
+                  </span>
+                )}
+              </div>
+
+              {/* Zones */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+
+                <div style={{ display: "flex", gap: "6px" }}>
+                  <div style={{ flex: 1, minHeight: "60px", background: "rgba(0,0,0,0.15)", borderRadius: "8px", padding: "6px" }}>
+                    <p style={{ fontFamily: "Cinzel, serif", color: "#c9a84c60", fontSize: "0.6rem", marginBottom: "4px" }}>🐉 CRÉATURES</p>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+                      {state.battlefield?.filter(c => c.zone === "creatures").map((card, i) => (
+                        <div key={i} style={{ transform: card.tapped ? "rotate(90deg)" : "none", transition: "transform 0.2s" }}>
+                          <MiniCard name={card.name} />
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                ))}
+                  <div style={{ flex: 1, minHeight: "60px", background: "rgba(0,0,0,0.15)", borderRadius: "8px", padding: "6px" }}>
+                    <p style={{ fontFamily: "Cinzel, serif", color: "#c9a84c60", fontSize: "0.6rem", marginBottom: "4px" }}>✨ PLANESWALKERS</p>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+                      {state.battlefield?.filter(c => c.zone === "planeswalkers").map((card, i) => (
+                        <MiniCard key={i} name={card.name} />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ minHeight: "60px", background: "rgba(0,0,0,0.15)", borderRadius: "8px", padding: "6px" }}>
+                  <p style={{ fontFamily: "Cinzel, serif", color: "#c9a84c60", fontSize: "0.6rem", marginBottom: "4px" }}>🔮 ENCHANTEMENTS & ARTEFACTS</p>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+                    {state.battlefield?.filter(c => c.zone === "enchantements").map((card, i) => (
+                      <MiniCard key={i} name={card.name} />
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ minHeight: "60px", background: "rgba(0,0,0,0.15)", borderRadius: "8px", padding: "6px" }}>
+                  <p style={{ fontFamily: "Cinzel, serif", color: "#c9a84c60", fontSize: "0.6rem", marginBottom: "4px" }}>🌲 TERRAINS</p>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+                    {state.battlefield?.filter(c => c.zone === "terrains").map((card, i) => (
+                      <div key={i} style={{ transform: card.tapped ? "rotate(90deg)" : "none", transition: "transform 0.2s" }}>
+                        <MiniCard name={card.name} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
               </div>
             </div>
           ))}
