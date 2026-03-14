@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useDrag, useDrop } from "react-dnd"
 import Card from "./card"
 import Graveyard from "./Graveyard"
@@ -8,6 +8,7 @@ import CounterMenu from "./CounterMenu"
 import DiceRoller from "./DiceRoller"
 import ZoneMenu from "./ZoneMenu"
 import CommanderZone from "./CommanderZone"
+import socket from "../services/socket"
 
 function BattlefieldCard({ card, index, onTap, onCounterUpdate }) {
   const [{ isDragging }, drag] = useDrag({
@@ -121,8 +122,32 @@ function DropZone({ onDrop, children }) {
   )
 }
 
-function Battlefield({ gameState, onDraw, setGameState, onReset }) {
+function Battlefield({ gameState, onDraw, setGameState, onReset, roomCode }) {
   const [zoneMenu, setZoneMenu] = useState(null)
+  const [otherPlayers, setOtherPlayers] = useState({})
+
+  // Synchroniser son état avec les autres joueurs
+  useEffect(() => {
+    if (!roomCode) return
+    socket.emit("sync_state", {
+      roomCode,
+      playerId: socket.id,
+      gameState
+    })
+  }, [gameState])
+
+  // Recevoir les états des autres joueurs
+  useEffect(() => {
+    if (!roomCode) return
+
+    socket.on("state_updated", ({ playerId, gameState: otherState }) => {
+      if (playerId !== socket.id) {
+        setOtherPlayers(prev => ({ ...prev, [playerId]: otherState }))
+      }
+    })
+
+    return () => socket.off("state_updated")
+  }, [roomCode])
 
   function openZoneMenu(card, index) {
     setZoneMenu({ card, index, suggested: null })
@@ -262,14 +287,40 @@ function Battlefield({ gameState, onDraw, setGameState, onReset }) {
   return (
     <div className="w-full flex flex-col gap-3">
 
-      <div className="flex justify-end">
+      <div className="flex justify-between items-center">
+        {/* Infos room */}
+        {roomCode && (
+          <span style={{ fontFamily: "Cinzel, serif", color: "#c9a84c80", fontSize: "0.75rem" }}>
+            🏰 Room : {roomCode} — {Object.keys(otherPlayers).length + 1} joueur(s)
+          </span>
+        )}
         <button
           onClick={onReset}
-          style={{ fontSize: "0.65rem", color: "#e63946", background: "none", border: "1px solid #e6394640", borderRadius: "20px", padding: "4px 10px", cursor: "pointer" }}
+          style={{ fontSize: "0.65rem", color: "#e63946", background: "none", border: "1px solid #e6394640", borderRadius: "20px", padding: "4px 10px", cursor: "pointer", marginLeft: "auto" }}
         >
           🔁 Recommencer
         </button>
       </div>
+
+      {/* Plateaux des autres joueurs */}
+      {Object.entries(otherPlayers).length > 0 && (
+        <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+          {Object.entries(otherPlayers).map(([playerId, state]) => (
+            <div key={playerId} style={{ padding: "10px", borderRadius: "12px", background: "rgba(0,0,0,0.2)", border: "1px solid rgba(201,168,76,0.2)", minWidth: "200px" }}>
+              <p style={{ fontFamily: "Cinzel, serif", color: "#c9a84c80", fontSize: "0.7rem", marginBottom: "6px" }}>
+                🧙 Adversaire — ❤️ {state.life} — 🃏 {state.hand?.length} cartes
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {state.battlefield?.map((card, i) => (
+                  <div key={i} style={{ fontSize: "0.6rem", color: "#f0e6d3", background: "rgba(255,255,255,0.05)", padding: "2px 6px", borderRadius: "4px" }}>
+                    {card.name}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="control-bar flex gap-3 justify-center items-center flex-wrap px-4">
         <DiceRoller />
