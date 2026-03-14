@@ -18,9 +18,11 @@ function Lobby({ onGameStart }) {
     })
 
     socket.on("room_joined", ({ roomCode, players }) => {
-      setCurrentRoom(roomCode)
-      setPlayers(players)
-    })
+  setCurrentRoom(roomCode)
+  setPlayers(players)
+  // Demander les états existants
+  socket.emit("request_states", { roomCode })
+})
 
     socket.on("player_joined", ({ players }) => {
       setPlayers(players)

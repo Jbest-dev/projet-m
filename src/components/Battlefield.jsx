@@ -126,7 +126,7 @@ function Battlefield({ gameState, onDraw, setGameState, onReset, roomCode }) {
   const [zoneMenu, setZoneMenu] = useState(null)
   const [otherPlayers, setOtherPlayers] = useState({})
 
-  // Synchroniser son état avec les autres joueurs
+  // Envoyer l'état dès le montage du composant
   useEffect(() => {
     if (!roomCode) return
     socket.emit("sync_state", {
@@ -134,12 +134,22 @@ function Battlefield({ gameState, onDraw, setGameState, onReset, roomCode }) {
       playerId: socket.id,
       gameState
     })
-  }, [gameState])
+  }, [])
+
+  // Synchroniser son état à chaque changement
+  useEffect(() => {
+    if (!roomCode) return
+    socket.emit("sync_state", {
+      roomCode,
+      playerId: socket.id,
+      gameState
+    })
+  }, [gameState, roomCode])
 
   // Recevoir les états des autres joueurs
   useEffect(() => {
     if (!roomCode) return
-
+    socket.emit("request_states", { roomCode })
     socket.on("state_updated", ({ playerId, gameState: otherState }) => {
       if (playerId !== socket.id) {
         setOtherPlayers(prev => ({ ...prev, [playerId]: otherState }))
@@ -288,7 +298,6 @@ function Battlefield({ gameState, onDraw, setGameState, onReset, roomCode }) {
     <div className="w-full flex flex-col gap-3">
 
       <div className="flex justify-between items-center">
-        {/* Infos room */}
         {roomCode && (
           <span style={{ fontFamily: "Cinzel, serif", color: "#c9a84c80", fontSize: "0.75rem" }}>
             🏰 Room : {roomCode} — {Object.keys(otherPlayers).length + 1} joueur(s)
