@@ -1,6 +1,4 @@
 import { useState } from "react"
-import { DndProvider } from "react-dnd"
-import { HTML5Backend } from "react-dnd-html5-backend"
 import Lobby from "./components/Lobby"
 import DeckImport from "./components/DeckImport"
 import Battlefield from "./components/Battlefield"
@@ -44,27 +42,25 @@ function App() {
   }
 
   return (
-    <DndProvider backend={HTML5Backend}>
-      <div className="min-h-screen p-4 flex flex-col gap-4">
-        {roomCode === undefined ? (
-          <div className="flex items-center justify-center flex-1 min-h-screen">
-            <Lobby onGameStart={handleGameStart} />
-          </div>
-        ) : !gameState ? (
-          <div className="flex items-center justify-center flex-1 min-h-screen">
-            <DeckImport onDeckLoaded={startGame} />
-          </div>
-        ) : (
-          <Battlefield
-            gameState={gameState}
-            onDraw={drawCard}
-            setGameState={setGameState}
-            onReset={resetGame}
-            roomCode={roomCode}
-          />
-        )}
-      </div>
-    </DndProvider>
+    <div style={{ height: "100vh", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+      {roomCode === undefined ? (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flex: 1 }}>
+          <Lobby onGameStart={handleGameStart} />
+        </div>
+      ) : !gameState ? (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flex: 1 }}>
+          <DeckImport onDeckLoaded={startGame} />
+        </div>
+      ) : (
+        <Battlefield
+          gameState={gameState}
+          onDraw={drawCard}
+          setGameState={setGameState}
+          onReset={resetGame}
+          roomCode={roomCode}
+        />
+      )}
+    </div>
   )
 }
 

@@ -1,26 +1,4 @@
 import Card from "./card"
-import { useDrag } from "react-dnd"
-
-function CommanderCard({ commander }) {
-  const [{ isDragging }, drag] = useDrag({
-    type: "CARD",
-    item: () => ({ card: commander, index: -1 }),
-    collect: (monitor) => ({ isDragging: monitor.isDragging() })
-  })
-
-  return (
-    <div
-      ref={drag}
-      style={{ opacity: isDragging ? 0.3 : 1, cursor: "grab" }}
-    >
-      <Card
-        name={commander.name}
-        tapped={commander.tapped}
-        onClick={commander.onClick}
-      />
-    </div>
-  )
-}
 
 function CommanderZone({ commander, onTap, onSendToCommand }) {
   if (!commander) return null
@@ -47,11 +25,13 @@ function CommanderZone({ commander, onTap, onSendToCommand }) {
         👑 COMMANDANT
       </p>
 
-      <CommanderCard
-        commander={{ ...commander, onClick: () => onTap() }}
-      />
+      <div style={{ cursor: "pointer" }} onClick={onTap}>
+        <Card
+          name={commander.name}
+          tapped={commander.tapped}
+        />
+      </div>
 
-      {/* Compteur de fois joué */}
       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
         <span style={{ color: "#c9a84c80", fontSize: "0.75rem", fontFamily: "Crimson Text, serif" }}>
           Fois joué :

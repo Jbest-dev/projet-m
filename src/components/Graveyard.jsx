@@ -1,42 +1,118 @@
 import { useState } from "react"
+import { createPortal } from "react-dom"
 import Card from "./card"
 
-function Graveyard({ graveyard }) {
+const RECOVERY_OPTIONS = [
+  { key: "hand", label: "🃏 Mettre en main" },
+  { key: "battlefield", label: "⚔️ Jouer sur le battlefield" },
+  { key: "library", label: "📚 Remettre dans le deck" },
+]
+
+function Graveyard({ graveyard, onRecoverCard }) {
   const [open, setOpen] = useState(false)
+  const [selectedCard, setSelectedCard] = useState(null)
+
+  function handleRecover(destination) {
+    onRecoverCard(selectedCard.index, destination, "graveyard")
+    setSelectedCard(null)
+  }
 
   return (
     <>
-      <button
-        onClick={() => setOpen(true)}
-        className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded-full text-sm"
-      >
+      <button onClick={() => setOpen(true)} className="btn-dark">
         💀 Cimetière : {graveyard.length}
       </button>
 
-      {open && (
-        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
-          <div className="bg-gray-800 rounded-xl p-6 max-w-3xl w-full max-h-[80vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-purple-400 font-bold text-xl">💀 Cimetière</h2>
+      {open && createPortal(
+        <div
+          onClick={() => { setOpen(false); setSelectedCard(null) }}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.75)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "20px"
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: "#1a0f0a",
+              border: "1px solid #c9a84c",
+              borderRadius: "16px",
+              padding: "24px",
+              width: "90vw",
+              maxWidth: "900px",
+              maxHeight: "80vh",
+              display: "flex",
+              flexDirection: "column",
+              gap: "16px"
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h2 style={{ fontFamily: "Cinzel, serif", color: "#c9a84c" }}>💀 Cimetière</h2>
               <button
-                onClick={() => setOpen(false)}
-                className="text-gray-400 hover:text-white text-xl font-bold"
-              >
-                ✕
-              </button>
+                onClick={() => { setOpen(false); setSelectedCard(null) }}
+                style={{ background: "none", border: "none", color: "#f0e6d3", cursor: "pointer", fontSize: "1.5rem", lineHeight: 1 }}
+              >✕</button>
             </div>
 
-            {graveyard.length === 0 ? (
-              <p className="text-gray-400">Le cimetière est vide</p>
-            ) : (
-              <div className="flex flex-wrap gap-3">
-                {graveyard.map((card, i) => (
-                  <Card key={i} name={card.name} />
-                ))}
+            <div style={{ overflowY: "auto", flex: 1 }}>
+              {graveyard.length === 0 ? (
+                <p style={{ color: "#c9a84c60", fontFamily: "Crimson Text, serif" }}>Le cimetière est vide</p>
+              ) : (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "12px" }}>
+                  {graveyard.map((card, i) => (
+                    <div
+                      key={i}
+                      onClick={() => setSelectedCard({ card, index: i })}
+                      style={{
+                        cursor: "pointer",
+                        outline: selectedCard?.index === i ? "2px solid #c9a84c" : "none",
+                        borderRadius: "8px"
+                      }}
+                    >
+                      <Card name={card.name} />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Menu récupération */}
+            {selectedCard && (
+              <div style={{
+                borderTop: "1px solid rgba(201,168,76,0.3)",
+                paddingTop: "12px",
+                display: "flex",
+                flexDirection: "column",
+                gap: "8px"
+              }}>
+                <p style={{ fontFamily: "Cinzel, serif", color: "#c9a84c", fontSize: "0.8rem" }}>
+                  Récupérer "{selectedCard.card.name}" :
+                </p>
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                  {RECOVERY_OPTIONS.map(opt => (
+                    <button
+                      key={opt.key}
+                      className="btn-gold"
+                      onClick={() => {
+                        handleRecover(opt.key)
+                        setOpen(false)
+                      }}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   )

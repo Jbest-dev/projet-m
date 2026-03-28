@@ -5,6 +5,9 @@ function DeckImport({ onDeckLoaded }) {
   const [deckName, setDeckName] = useState("")
   const [commander, setCommander] = useState("")
   const [savedDecks, setSavedDecks] = useState([])
+  const [archidektUrl, setArchidektUrl] = useState("")
+  const [loadingArchidekt, setLoadingArchidekt] = useState(false)
+  const [error, setError] = useState(null)
 
   useEffect(() => {
     try {
@@ -29,6 +32,63 @@ function DeckImport({ onDeckLoaded }) {
       }
     }
     return cards
+  }
+
+  async function importFromArchidekt() {
+    setError(null)
+    setLoadingArchidekt(true)
+    try {
+      const match = archidektUrl.match(/archidekt\.com\/decks\/(\d+)/)
+      if (!match) {
+        setError("URL Archidekt invalide ! Ex: https://archidekt.com/decks/12345")
+        setLoadingArchidekt(false)
+        return
+      }
+
+      const deckId = match[1]
+      const response = await fetch(`https://corsproxy.io/?https://archidekt.com/api/decks/${deckId}/`)
+      const data = await response.json()
+
+      // Récupérer le nom du deck
+      const name = data.name || "Deck importé"
+
+      // Récupérer les cartes
+      const cards = []
+      let detectedCommander = ""
+
+      for (const card of data.cards) {
+        const cardName = card.card?.oracleCard?.name
+        const quantity = card.quantity || 1
+        const categories = card.categories || []
+
+        if (!cardName) continue
+
+        // Détecter le commandant
+        if (categories.includes("Commander")) {
+          detectedCommander = cardName
+        }
+
+        for (let i = 0; i < quantity; i++) {
+          cards.push({ quantity: 1, name: cardName })
+        }
+      }
+
+      // Remplir les champs
+      const deckList = [...new Set(cards.map(c => c.name))].map(name => {
+        const count = cards.filter(c => c.name === name).length
+        return `${count} ${name}`
+      }).join("\n")
+
+      setDeckText(deckList)
+      setDeckName(name)
+      setCommander(detectedCommander)
+      setArchidektUrl("")
+
+    } catch (e) {
+      setError("Erreur lors de l'import. Vérifie que le deck est public !")
+      console.error(e)
+    }
+    setLoadingArchidekt(false)
   }
 
   function saveDeck() {
@@ -59,7 +119,7 @@ function DeckImport({ onDeckLoaded }) {
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "16px", width: "100%", maxWidth: "600px" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "16px", width: "100%", maxWidth: "700px" }}>
 
       <div style={{ textAlign: "center" }}>
         <h1 style={{
@@ -81,16 +141,43 @@ function DeckImport({ onDeckLoaded }) {
       <div style={{ display: "flex", gap: "16px" }}>
 
         <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "12px", padding: "20px", borderRadius: "12px", background: "rgba(45,24,16,0.9)", border: "1px solid #c9a84c" }}>
-          <h2 style={{ fontFamily: "Cinzel, serif", color: "#c9a84c", fontSize: "0.9rem" }}>
-            📋 Importer un deck
-          </h2>
+          <h2 style={{ fontFamily: "Cinzel, serif", color: "#c9a84c", fontSize: "0.9rem" }}>📋 Importer un deck</h2>
 
-          <textarea
-            style={{ background: "rgba(0,0,0,0.3)", color: "#f0e6d3", border: "1px solid rgba(201,168,76,0.3)", borderRadius: "8px", padding: "12px", height: "180px", resize: "none", fontFamily: "Crimson Text, serif", fontSize: "1rem" }}
-            placeholder={"1 Sol Ring\n1 Command Tower\n1 Lightning Bolt..."}
-            value={deckText}
-            onChange={(e) => setDeckText(e.target.value)}
-          />
+          {/* Import Archidekt */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+            <p style={{ color: "#c9a84c80", fontFamily: "Crimson Text, serif", fontSize: "0.85rem" }}>
+              🔗 Importer depuis Archidekt
+            </p>
+            <div style={{ display: "flex", gap: "8px" }}>
+              <input
+                type="text"
+                placeholder="https://archidekt.com/decks/12345..."
+                value={archidektUrl}
+                onChange={(e) => setArchidektUrl(e.target.value)}
+                style={{ flex: 1, background: "rgba(0,0,0,0.3)", color: "#f0e6d3", border: "1px solid rgba(201,168,76,0.3)", borderRadius: "8px", padding: "6px 12px", fontFamily: "Crimson Text, serif", fontSize: "0.9rem" }}
+              />
+              <button
+                className="btn-dark"
+                onClick={importFromArchidekt}
+                disabled={loadingArchidekt || !archidektUrl.trim()}
+              >
+                {loadingArchidekt ? "⏳" : "📥 Importer"}
+              </button>
+            </div>
+            {error && <p style={{ color: "#e63946", fontFamily: "Crimson Text, serif", fontSize: "0.85rem" }}>{error}</p>}
+          </div>
+
+          <div style={{ borderTop: "1px solid rgba(201,168,76,0.2)", paddingTop: "8px" }}>
+            <p style={{ color: "#c9a84c80", fontFamily: "Crimson Text, serif", fontSize: "0.85rem", marginBottom: "6px" }}>
+              ✍️ Ou colle ta liste manuellement
+            </p>
+            <textarea
+              style={{ background: "rgba(0,0,0,0.3)", color: "#f0e6d3", border: "1px solid rgba(201,168,76,0.3)", borderRadius: "8px", padding: "12px", height: "140px", resize: "none", fontFamily: "Crimson Text, serif", fontSize: "1rem", width: "100%" }}
+              placeholder={"1 Sol Ring\n1 Command Tower\n1 Lightning Bolt..."}
+              value={deckText}
+              onChange={(e) => setDeckText(e.target.value)}
+            />
+          </div>
 
           <input
             type="text"
@@ -115,14 +202,10 @@ function DeckImport({ onDeckLoaded }) {
         </div>
 
         <div style={{ width: "200px", display: "flex", flexDirection: "column", gap: "12px", padding: "20px", borderRadius: "12px", background: "rgba(45,24,16,0.9)", border: "1px solid rgba(201,168,76,0.3)" }}>
-          <h2 style={{ fontFamily: "Cinzel, serif", color: "#c9a84c", fontSize: "0.9rem" }}>
-            📚 Mes decks
-          </h2>
+          <h2 style={{ fontFamily: "Cinzel, serif", color: "#c9a84c", fontSize: "0.9rem" }}>📚 Mes decks</h2>
 
           {savedDecks.length === 0 ? (
-            <p style={{ color: "#c9a84c60", fontFamily: "Crimson Text, serif", fontSize: "0.9rem" }}>
-              Aucun deck sauvegardé
-            </p>
+            <p style={{ color: "#c9a84c60", fontFamily: "Crimson Text, serif", fontSize: "0.9rem" }}>Aucun deck sauvegardé</p>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
               {savedDecks.map(deck => (

@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react"
-import { useDrag, useDrop } from "react-dnd"
+import { DndContext, DragOverlay, PointerSensor, useSensor, useSensors, useDroppable } from "@dnd-kit/core"
+import { useDraggable } from "@dnd-kit/core"
+import { CSS } from "@dnd-kit/utilities"
 import Card from "./card"
 import Graveyard from "./Graveyard"
 import Library from "./Library"
@@ -34,7 +36,6 @@ function MiniCard({ name }) {
         alt={name}
         style={{ width: "40px", height: "56px", borderRadius: "4px", display: "block", pointerEvents: "none" }}
       />
-
       {hovered && (
         <div style={{
           position: "fixed",
@@ -55,24 +56,32 @@ function MiniCard({ name }) {
   )
 }
 
-function BattlefieldCard({ card, index, onTap, onCounterUpdate }) {
-  const [{ isDragging }, drag] = useDrag({
-    type: "CARD",
-    item: () => ({ card, index }),
-    collect: (monitor) => ({ isDragging: monitor.isDragging() })
+function DraggableCard({ card, index, onTap, onCounterUpdate }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: `card-${index}`,
+    data: { card, index }
   })
+
+  const style = {
+    transform: CSS.Translate.toString(transform),
+    opacity: isDragging ? 0.3 : 1,
+    cursor: "grab",
+    touchAction: "none"
+  }
 
   return (
     <div
-      ref={drag}
+      ref={setNodeRef}
+      style={style}
+      {...listeners}
+      {...attributes}
       className="flex flex-col items-center gap-1"
-      style={{ opacity: isDragging ? 0.3 : 1, cursor: "grab" }}
     >
       <Card
         name={card.name}
         quantity={card.quantity}
         tapped={card.tapped}
-        onClick={() => onTap(index)}
+        onClick={() => !isDragging && onTap(index)}
       />
 
       {card.counters && Object.entries(card.counters).some(([_, v]) => v > 0) && (
@@ -99,40 +108,39 @@ function BattlefieldCard({ card, index, onTap, onCounterUpdate }) {
         </div>
       )}
 
-      <CounterMenu
-        counters={card.counters || {}}
-        onUpdate={(key, amount) => onCounterUpdate(index, key, amount)}
-      />
+      <div onPointerDown={e => e.stopPropagation()}>
+        <CounterMenu
+          counters={card.counters || {}}
+          onUpdate={(key, amount) => onCounterUpdate(index, key, amount)}
+        />
+      </div>
     </div>
   )
 }
 
-function BattleZone({ label, cards, onDrop, onTap, onCounterUpdate, minHeight = "120px" }) {
-  const [{ isOver }, drop] = useDrop(() => ({
-    accept: "CARD",
-    drop: (item) => onDrop(item.card, item.index),
-    collect: (monitor) => ({ isOver: monitor.isOver() })
-  }))
+function DroppableZone({ id, label, cards, onTap, onCounterUpdate, minHeight = "80px", style = {} }) {
+  const { setNodeRef, isOver } = useDroppable({ id })
 
   return (
     <div
-      ref={drop}
+      ref={setNodeRef}
       style={{
         minHeight,
-        background: isOver ? "rgba(201,168,76,0.08)" : "rgba(0,0,0,0.15)",
-        border: isOver ? "1px solid #c9a84c" : "1px solid rgba(255,255,255,0.06)",
+        background: isOver ? "rgba(201,168,76,0.12)" : "rgba(0,0,0,0.15)",
+        border: isOver ? "2px solid #c9a84c" : "1px solid rgba(255,255,255,0.06)",
         borderRadius: "12px",
-        padding: "10px",
-        transition: "all 0.2s",
-        flex: 1
+        padding: "6px",
+        transition: "all 0.15s",
+        flex: 1,
+        ...style
       }}
     >
-      <p style={{ fontFamily: "Cinzel, serif", color: "#c9a84c99", fontSize: "0.7rem", letterSpacing: "0.08em", marginBottom: "8px" }}>
+      <p style={{ fontFamily: "Cinzel, serif", color: "#c9a84c99", fontSize: "0.65rem", letterSpacing: "0.08em", marginBottom: "4px" }}>
         {label}
       </p>
-      <div className="flex flex-wrap gap-4">
+      <div className="flex flex-wrap gap-2">
         {cards.map((card) => (
-          <BattlefieldCard
+          <DraggableCard
             key={card._globalIndex}
             card={card}
             index={card._globalIndex}
@@ -145,18 +153,14 @@ function BattleZone({ label, cards, onDrop, onTap, onCounterUpdate, minHeight = 
   )
 }
 
-function DropZone({ onDrop, children }) {
-  const [{ isOver }, drop] = useDrop(() => ({
-    accept: "CARD",
-    drop: (item) => onDrop(item.card, item.index),
-    collect: (monitor) => ({ isOver: monitor.isOver() })
-  }))
+function DroppableControlZone({ id, children }) {
+  const { setNodeRef, isOver } = useDroppable({ id })
 
   return (
     <div
-      ref={drop}
+      ref={setNodeRef}
       style={{
-        transition: "all 0.2s",
+        transition: "all 0.15s",
         transform: isOver ? "scale(1.1)" : "scale(1)",
         outline: isOver ? "2px solid #c9a84c" : "none",
         borderRadius: "20px"
@@ -170,38 +174,56 @@ function DropZone({ onDrop, children }) {
 function Battlefield({ gameState, onDraw, setGameState, onReset, roomCode }) {
   const [zoneMenu, setZoneMenu] = useState(null)
   const [otherPlayers, setOtherPlayers] = useState({})
+  const [activeCard, setActiveCard] = useState(null)
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 8 }
+    })
+  )
 
   useEffect(() => {
     if (!roomCode) return
-    socket.emit("sync_state", {
-      roomCode,
-      playerId: socket.id,
-      gameState
-    })
+    socket.emit("sync_state", { roomCode, playerId: socket.id, gameState })
   }, [])
 
   useEffect(() => {
     if (!roomCode) return
-    socket.emit("sync_state", {
-      roomCode,
-      playerId: socket.id,
-      gameState
-    })
+    socket.emit("sync_state", { roomCode, playerId: socket.id, gameState })
   }, [gameState, roomCode])
 
   useEffect(() => {
     if (!roomCode) return
-
     socket.emit("request_states", { roomCode })
-
     socket.on("state_updated", ({ playerId, gameState: otherState }) => {
       if (playerId !== socket.id) {
         setOtherPlayers(prev => ({ ...prev, [playerId]: otherState }))
       }
     })
-
     return () => socket.off("state_updated")
   }, [roomCode])
+
+  function handleDragStart(event) {
+    const { data } = event.active
+    setActiveCard(data.current)
+  }
+
+  function handleDragEnd(event) {
+    const { active, over } = event
+    setActiveCard(null)
+    if (!over) return
+
+    const { card, index } = active.data.current
+    const destination = over.id
+
+    if (destination === "graveyard") {
+      sendToGraveyard(card, index)
+    } else if (destination === "exile") {
+      sendToExile(card, index)
+    } else if (["creatures", "planeswalkers", "enchantements", "terrains", "nonpermanent"].includes(destination)) {
+      moveToZone(card, index, destination)
+    }
+  }
 
   function openZoneMenu(card, index) {
     setZoneMenu({ card, index, suggested: null })
@@ -252,6 +274,23 @@ function Battlefield({ gameState, onDraw, setGameState, onReset, roomCode }) {
     }))
   }
 
+  function recoverCard(index, destination, source) {
+    setGameState(prev => {
+      const sourceList = source === "graveyard" ? prev.graveyard : prev.exile
+      const card = sourceList[index]
+      const newSourceList = sourceList.filter((_, i) => i !== index)
+
+      if (destination === "hand") {
+        return { ...prev, [source]: newSourceList, hand: [...prev.hand, card] }
+      } else if (destination === "library") {
+        return { ...prev, [source]: newSourceList, library: [...prev.library, card] }
+      } else if (destination === "battlefield") {
+        return { ...prev, [source]: newSourceList, battlefield: [...prev.battlefield, { ...card, tapped: false, zone: "creatures" }] }
+      }
+      return prev
+    })
+  }
+
   function untapAll() {
     setGameState(prev => ({
       ...prev,
@@ -297,6 +336,13 @@ function Battlefield({ gameState, onDraw, setGameState, onReset, roomCode }) {
   function playCommander() {
     setGameState(prev => ({
       ...prev,
+      battlefield: [...prev.battlefield, {
+        name: prev.commander.name,
+        tapped: false,
+        zone: "creatures",
+        quantity: 1,
+        counters: {}
+      }],
       commander: {
         ...prev.commander,
         inPlay: true,
@@ -309,6 +355,7 @@ function Battlefield({ gameState, onDraw, setGameState, onReset, roomCode }) {
   function sendToCommandZone() {
     setGameState(prev => ({
       ...prev,
+      battlefield: prev.battlefield.filter(c => c.name !== prev.commander.name),
       commander: { ...prev.commander, inPlay: false, tapped: false }
     }))
   }
@@ -317,13 +364,38 @@ function Battlefield({ gameState, onDraw, setGameState, onReset, roomCode }) {
     setGameState(prev => {
       const card = prev.library[index]
       const newLibrary = prev.library.filter((_, i) => i !== index)
-      return {
-        ...prev,
-        library: newLibrary,
-        hand: [...prev.hand, card]
-      }
+      return { ...prev, library: newLibrary, hand: [...prev.hand, card] }
     })
   }
+  function drawX(count) {
+  setGameState(prev => {
+    if (prev.library.length === 0) return prev
+    const drawn = prev.library.slice(0, count)
+    const rest = prev.library.slice(count)
+    return {
+      ...prev,
+      library: rest,
+      hand: [...prev.hand, ...drawn]
+    }
+  })
+}
+
+function lookX(reorderedCards) {
+  setGameState(prev => {
+    const remaining = prev.library.slice(reorderedCards.length)
+    return {
+      ...prev,
+      library: [...reorderedCards, ...remaining]
+    }
+  })
+}
+
+function shuffleDeck() {
+  setGameState(prev => ({
+    ...prev,
+    library: [...prev.library].sort(() => Math.random() - 0.5)
+  }))
+}
 
   const indexedBattlefield = gameState.battlefield.map((card, i) => ({
     ...card,
@@ -339,234 +411,166 @@ function Battlefield({ gameState, onDraw, setGameState, onReset, roomCode }) {
   }
 
   return (
-    <div className="w-full flex flex-col gap-3">
+    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      <div style={{
+        height: "100vh",
+        display: "flex",
+        flexDirection: "column",
+        gap: "4px",
+        padding: "6px",
+        overflow: "hidden"
+      }}>
 
-      <div className="flex justify-between items-center">
-        {roomCode && (
-          <span style={{ fontFamily: "Cinzel, serif", color: "#c9a84c80", fontSize: "0.75rem" }}>
-            🏰 Room : {roomCode} — {Object.keys(otherPlayers).length + 1} joueur(s)
-          </span>
-        )}
-        <button
-          onClick={onReset}
-          style={{ fontSize: "0.65rem", color: "#e63946", background: "none", border: "1px solid #e6394640", borderRadius: "20px", padding: "4px 10px", cursor: "pointer", marginLeft: "auto" }}
-        >
-          🔁 Recommencer
-        </button>
-      </div>
-
-      {/* Plateaux des autres joueurs */}
-      {Object.entries(otherPlayers).length > 0 && (
-        <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-          {Object.entries(otherPlayers).map(([playerId, state]) => (
-            <div key={playerId} style={{
-              padding: "12px",
-              borderRadius: "12px",
-              background: "rgba(0,0,0,0.3)",
-              border: "1px solid rgba(201,168,76,0.3)",
-              flex: 1
-            }}>
-              {/* Header adversaire */}
-              <div style={{ display: "flex", gap: "12px", alignItems: "center", marginBottom: "8px" }}>
-                <p style={{ fontFamily: "Cinzel, serif", color: "#c9a84c", fontSize: "0.75rem" }}>
-                  🧙 Adversaire
-                </p>
-                <span style={{ color: "#e63946", fontSize: "0.75rem", fontFamily: "Cinzel, serif" }}>❤️ {state.life}</span>
-                <span style={{ color: "#f0e6d3", fontSize: "0.75rem", fontFamily: "Crimson Text, serif" }}>🃏 {state.hand?.length} cartes</span>
-                <span style={{ color: "#f0e6d3", fontSize: "0.75rem", fontFamily: "Crimson Text, serif" }}>📚 {state.library?.length}</span>
-                {state.commander && (
-                  <span style={{ color: "#c9a84c", fontSize: "0.75rem", fontFamily: "Crimson Text, serif" }}>
-                    👑 {state.commander.name}
-                  </span>
-                )}
-              </div>
-
-              {/* Zones */}
-              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-
-                <div style={{ display: "flex", gap: "6px" }}>
-                  <div style={{ flex: 1, minHeight: "60px", background: "rgba(0,0,0,0.15)", borderRadius: "8px", padding: "6px" }}>
-                    <p style={{ fontFamily: "Cinzel, serif", color: "#c9a84c60", fontSize: "0.6rem", marginBottom: "4px" }}>🐉 CRÉATURES</p>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
-                      {state.battlefield?.filter(c => c.zone === "creatures").map((card, i) => (
-                        <div key={i} style={{ transform: card.tapped ? "rotate(90deg)" : "none", transition: "transform 0.2s" }}>
-                          <MiniCard name={card.name} />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  <div style={{ flex: 1, minHeight: "60px", background: "rgba(0,0,0,0.15)", borderRadius: "8px", padding: "6px" }}>
-                    <p style={{ fontFamily: "Cinzel, serif", color: "#c9a84c60", fontSize: "0.6rem", marginBottom: "4px" }}>✨ PLANESWALKERS</p>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
-                      {state.battlefield?.filter(c => c.zone === "planeswalkers").map((card, i) => (
-                        <MiniCard key={i} name={card.name} />
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div style={{ minHeight: "60px", background: "rgba(0,0,0,0.15)", borderRadius: "8px", padding: "6px" }}>
-                  <p style={{ fontFamily: "Cinzel, serif", color: "#c9a84c60", fontSize: "0.6rem", marginBottom: "4px" }}>🔮 ENCHANTEMENTS & ARTEFACTS</p>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
-                    {state.battlefield?.filter(c => c.zone === "enchantements").map((card, i) => (
-                      <MiniCard key={i} name={card.name} />
-                    ))}
-                  </div>
-                </div>
-
-                <div style={{ minHeight: "60px", background: "rgba(0,0,0,0.15)", borderRadius: "8px", padding: "6px" }}>
-                  <p style={{ fontFamily: "Cinzel, serif", color: "#c9a84c60", fontSize: "0.6rem", marginBottom: "4px" }}>🌲 TERRAINS</p>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
-                    {state.battlefield?.filter(c => c.zone === "terrains").map((card, i) => (
-                      <div key={i} style={{ transform: card.tapped ? "rotate(90deg)" : "none", transition: "transform 0.2s" }}>
-                        <MiniCard name={card.name} />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div className="control-bar flex gap-3 justify-center items-center flex-wrap px-4">
-        <DiceRoller />
-        <Library library={gameState.library} onTakeCard={takeFromLibrary} />
-        <DropZone onDrop={sendToGraveyard}>
-          <Graveyard graveyard={gameState.graveyard} />
-        </DropZone>
-        <DropZone onDrop={sendToExile}>
-          <Exile exile={gameState.exile} />
-        </DropZone>
-        <div className="life-counter flex items-center gap-2">
-          <button onClick={() => setGameState(prev => ({ ...prev, life: prev.life - 1 }))}
-            style={{ color: "#e63946", fontWeight: "bold", fontSize: "1.2rem", background: "none", border: "none", cursor: "pointer" }}>−</button>
-          <span style={{ fontFamily: "Cinzel, serif", fontWeight: 700, fontSize: "1rem" }}>❤️ {gameState.life}</span>
-          <button onClick={() => setGameState(prev => ({ ...prev, life: prev.life + 1 }))}
-            style={{ color: "#2dc653", fontWeight: "bold", fontSize: "1.2rem", background: "none", border: "none", cursor: "pointer" }}>+</button>
-        </div>
-        <button className="btn-gold" onClick={onDraw}>Piocher 🃏</button>
-        <button className="btn-dark" onClick={untapAll}>🔄 Untap All</button>
-        <button className="btn-gold" onClick={newTurn}>⏭️ Nouveau tour</button>
-      </div>
-
-      {gameState.commander && (
-        <div style={{ display: "flex", gap: "16px", alignItems: "flex-start" }}>
-          {gameState.commander.inPlay ? (
-            <CommanderZone
-              commander={gameState.commander}
-              onTap={tapCommander}
-              onSendToCommand={sendToCommandZone}
-            />
-          ) : (
-            <div style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: "8px",
-              padding: "12px",
-              borderRadius: "12px",
-              background: "rgba(201,168,76,0.05)",
-              border: "2px dashed #c9a84c60",
-              minWidth: "160px"
-            }}>
-              <p style={{ fontFamily: "Cinzel, serif", color: "#c9a84c80", fontSize: "0.7rem" }}>
-                👑 COMMANDANT
-              </p>
-              <Card name={gameState.commander.name} />
-              <button className="btn-gold" onClick={playCommander}>
-                ⚔️ Jouer
-              </button>
-              <span style={{ color: "#c9a84c60", fontSize: "0.75rem", fontFamily: "Crimson Text, serif" }}>
-                Fois joué : {gameState.commander.timesPlayed || 0}
-              </span>
-            </div>
+        {/* Header */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
+          {roomCode && (
+            <span style={{ fontFamily: "Cinzel, serif", color: "#c9a84c80", fontSize: "0.7rem" }}>
+              🏰 Room : {roomCode} — {Object.keys(otherPlayers).length + 1} joueur(s)
+            </span>
           )}
-        </div>
-      )}
-
-      <div className="battlefield p-4">
-        <h2 style={{ fontFamily: "Cinzel, serif", color: "#c9a84c", marginBottom: "12px", fontSize: "0.85rem", letterSpacing: "0.1em" }}>
-          ⚔️ BATTLEFIELD
-        </h2>
-
-        <div className="flex gap-3 mb-3">
-          <BattleZone
-            label="🐉 CRÉATURES"
-            cards={zones.creatures}
-            onDrop={(card, index) => moveToZone(card, index, "creatures")}
-            onTap={tapCard}
-            onCounterUpdate={updateCounter}
-            minHeight="140px"
-          />
-          <BattleZone
-            label="✨ PLANESWALKERS"
-            cards={zones.planeswalkers}
-            onDrop={(card, index) => moveToZone(card, index, "planeswalkers")}
-            onTap={tapCard}
-            onCounterUpdate={updateCounter}
-            minHeight="140px"
-          />
+          <button
+            onClick={onReset}
+            style={{ fontSize: "0.6rem", color: "#e63946", background: "none", border: "1px solid #e6394640", borderRadius: "20px", padding: "3px 8px", cursor: "pointer", marginLeft: "auto" }}
+          >
+            🔁 Recommencer
+          </button>
         </div>
 
-        <div className="mb-3">
-          <BattleZone
-            label="🔮 ENCHANTEMENTS & ARTEFACTS"
-            cards={zones.enchantements}
-            onDrop={(card, index) => moveToZone(card, index, "enchantements")}
-            onTap={tapCard}
-            onCounterUpdate={updateCounter}
-            minHeight="120px"
-          />
+        {/* Plateaux des autres joueurs */}
+        {Object.entries(otherPlayers).length > 0 && (
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", flexShrink: 0 }}>
+            {Object.entries(otherPlayers).map(([playerId, state]) => (
+              <div key={playerId} style={{ padding: "8px", borderRadius: "12px", background: "rgba(0,0,0,0.3)", border: "1px solid rgba(201,168,76,0.3)", flex: 1 }}>
+                <div style={{ display: "flex", gap: "8px", alignItems: "center", marginBottom: "6px" }}>
+                  <p style={{ fontFamily: "Cinzel, serif", color: "#c9a84c", fontSize: "0.7rem" }}>🧙 Adversaire</p>
+                  <span style={{ color: "#e63946", fontSize: "0.7rem" }}>❤️ {state.life}</span>
+                  <span style={{ color: "#f0e6d3", fontSize: "0.7rem" }}>🃏 {state.hand?.length}</span>
+                  <span style={{ color: "#f0e6d3", fontSize: "0.7rem" }}>📚 {state.library?.length}</span>
+                  {state.commander && <span style={{ color: "#c9a84c", fontSize: "0.7rem" }}>👑 {state.commander.name}</span>}
+                </div>
+                <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+                  {state.battlefield?.map((card, i) => (
+                    <div key={i} style={{ transform: card.tapped ? "rotate(90deg)" : "none", transition: "transform 0.2s" }}>
+                      <MiniCard name={card.name} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Barre de contrôles */}
+        <div className="control-bar" style={{ display: "flex", gap: "6px", justifyContent: "center", alignItems: "center", flexWrap: "wrap", flexShrink: 0 }}>
+          <DiceRoller />
+          <Library
+  library={gameState.library}
+  onTakeCard={takeFromLibrary}
+  onDrawX={drawX}
+  onLookX={lookX}
+  onShuffle={shuffleDeck}
+/>
+          <DroppableControlZone id="graveyard">
+            <Graveyard graveyard={gameState.graveyard} onRecoverCard={recoverCard} />
+          </DroppableControlZone>
+          <DroppableControlZone id="exile">
+            <Exile exile={gameState.exile} onRecoverCard={recoverCard} />
+          </DroppableControlZone>
+          <div className="life-counter" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <button onClick={() => setGameState(prev => ({ ...prev, life: prev.life - 1 }))}
+              style={{ color: "#e63946", fontWeight: "bold", fontSize: "1rem", background: "none", border: "none", cursor: "pointer" }}>−</button>
+            <span style={{ fontFamily: "Cinzel, serif", fontWeight: 700, fontSize: "0.9rem" }}>❤️ {gameState.life}</span>
+            <button onClick={() => setGameState(prev => ({ ...prev, life: prev.life + 1 }))}
+              style={{ color: "#2dc653", fontWeight: "bold", fontSize: "1rem", background: "none", border: "none", cursor: "pointer" }}>+</button>
+          </div>
+          <button className="btn-gold" onClick={onDraw}>Piocher 🃏</button>
+          <button className="btn-dark" onClick={untapAll}>🔄 Untap All</button>
+          <button className="btn-gold" onClick={newTurn}>⏭️ Nouveau tour</button>
         </div>
 
-        <div className="mb-3">
-          <BattleZone
-            label="🌲 TERRAINS"
-            cards={zones.terrains}
-            onDrop={(card, index) => moveToZone(card, index, "terrains")}
-            onTap={tapCard}
-            onCounterUpdate={updateCounter}
-            minHeight="120px"
-          />
-        </div>
+        {/* Battlefield */}
+        <div className="battlefield p-2" style={{ flex: 1, overflow: "auto", minHeight: 0 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "4px", height: "100%" }}>
 
-        <div>
-          <BattleZone
-            label="⚡ NON-PERMANENT"
-            cards={zones.nonpermanent}
-            onDrop={(card, index) => moveToZone(card, index, "nonpermanent")}
-            onTap={tapCard}
-            onCounterUpdate={updateCounter}
-            minHeight="60px"
-          />
-        </div>
-      </div>
-
-      <div className="hand-zone p-4 min-h-36">
-        <h2 style={{ fontFamily: "Cinzel, serif", color: "#c9a84c", marginBottom: "12px", fontSize: "0.85rem", letterSpacing: "0.1em" }}>
-          🃏 MAIN ({gameState.hand.length})
-        </h2>
-        <div className="flex flex-wrap gap-3">
-          {gameState.hand.map((card, i) => (
-            <div key={i} onClick={() => openZoneMenu(card, i)} style={{ cursor: "pointer" }}>
-              <Card name={card.name} quantity={card.quantity} />
+            <div style={{ display: "flex", gap: "4px", flex: 2 }}>
+              <DroppableZone id="creatures" label="🐉 CRÉATURES" cards={zones.creatures} onTap={tapCard} onCounterUpdate={updateCounter} style={{ flex: 3 }} />
+              <DroppableZone id="planeswalkers" label="✨ PLANESWALKERS" cards={zones.planeswalkers} onTap={tapCard} onCounterUpdate={updateCounter} style={{ flex: 1 }} />
             </div>
-          ))}
+
+            <div style={{ display: "flex", gap: "4px", flex: 1 }}>
+              <DroppableZone id="enchantements" label="🔮 ENCHANTEMENTS & ARTEFACTS" cards={zones.enchantements} onTap={tapCard} onCounterUpdate={updateCounter} />
+            </div>
+
+            <div style={{ display: "flex", gap: "4px", flex: 1 }}>
+              <DroppableZone id="terrains" label="🌲 TERRAINS" cards={zones.terrains} onTap={tapCard} onCounterUpdate={updateCounter} />
+            </div>
+
+            <div style={{ display: "flex", gap: "4px", flexShrink: 0 }}>
+              {gameState.commander && (
+                gameState.commander.inPlay ? (
+                  <CommanderZone
+                    commander={gameState.commander}
+                    onTap={tapCommander}
+                    onSendToCommand={sendToCommandZone}
+                  />
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px", padding: "8px", borderRadius: "12px", background: "rgba(201,168,76,0.05)", border: "2px dashed #c9a84c60", minWidth: "140px" }}>
+                    <p style={{ fontFamily: "Cinzel, serif", color: "#c9a84c80", fontSize: "0.65rem" }}>👑 COMMANDANT</p>
+                    <Card name={gameState.commander.name} />
+                    <button className="btn-gold" onClick={playCommander}>⚔️ Jouer</button>
+                    <span style={{ color: "#c9a84c60", fontSize: "0.7rem", fontFamily: "Crimson Text, serif" }}>
+                      Fois joué : {gameState.commander.timesPlayed || 0}
+                    </span>
+                  </div>
+                )
+              )}
+              <div style={{ flex: 1 }}>
+                <DroppableZone id="nonpermanent" label="⚡ NON-PERMANENT" cards={zones.nonpermanent} onTap={tapCard} onCounterUpdate={updateCounter} minHeight="60px" />
+              </div>
+            </div>
+
+          </div>
         </div>
+
+        {/* Main */}
+        <div className="hand-zone p-2" style={{
+          height: "160px",
+          minHeight: "160px",
+          overflowX: "auto",
+          overflowY: "hidden",
+          flexShrink: 0
+        }}>
+          <h2 style={{ fontFamily: "Cinzel, serif", color: "#c9a84c", marginBottom: "6px", fontSize: "0.8rem", letterSpacing: "0.1em" }}>
+            🃏 MAIN ({gameState.hand.length})
+          </h2>
+          <div style={{ display: "flex", gap: "8px" }}>
+            {gameState.hand.map((card, i) => (
+              <div key={i} onClick={() => openZoneMenu(card, i)} style={{ cursor: "pointer", flexShrink: 0 }}>
+                <Card name={card.name} quantity={card.quantity} />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {zoneMenu && (
+          <ZoneMenu
+            suggestedZone={zoneMenu.suggested}
+            onSelect={playCardToZone}
+            onClose={() => setZoneMenu(null)}
+          />
+        )}
+
       </div>
 
-      {zoneMenu && (
-        <ZoneMenu
-          suggestedZone={zoneMenu.suggested}
-          onSelect={playCardToZone}
-          onClose={() => setZoneMenu(null)}
-        />
-      )}
+      <DragOverlay>
+        {activeCard ? (
+          <div style={{ opacity: 0.9, transform: "rotate(3deg)", cursor: "grabbing" }}>
+            <Card name={activeCard.card.name} />
+          </div>
+        ) : null}
+      </DragOverlay>
 
-    </div>
+    </DndContext>
   )
 }
 
