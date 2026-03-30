@@ -119,8 +119,7 @@ function DeckImport({ onDeckLoaded }) {
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "16px", width: "100%", maxWidth: "700px" }}>
-
+  <div style={{ display: "flex", flexDirection: "column", gap: "16px", width: "100%", maxWidth: "1400px" }}>
       <div style={{ textAlign: "center" }}>
         <h1 style={{
           fontFamily: "Cinzel, serif",
@@ -172,7 +171,7 @@ function DeckImport({ onDeckLoaded }) {
               ✍️ Ou colle ta liste manuellement
             </p>
             <textarea
-              style={{ background: "rgba(0,0,0,0.3)", color: "#f0e6d3", border: "1px solid rgba(201,168,76,0.3)", borderRadius: "8px", padding: "12px", height: "140px", resize: "none", fontFamily: "Crimson Text, serif", fontSize: "1rem", width: "100%" }}
+              style={{ background: "rgba(0,0,0,0.3)", color: "#f0e6d3", border: "1px solid rgba(201,168,76,0.3)", borderRadius: "8px", padding: "12px", height: "280px", resize: "none", fontFamily: "Crimson Text, serif", fontSize: "1rem", width: "100%" }}
               placeholder={"1 Sol Ring\n1 Command Tower\n1 Lightning Bolt..."}
               value={deckText}
               onChange={(e) => setDeckText(e.target.value)}
